@@ -5,6 +5,9 @@ import (
 	"log"
 
 	"github.com/streadway/amqp"
+	"github.com/vicpoo/websocketVoltaje/Voltaje/application"
+	"github.com/vicpoo/websocketVoltaje/Voltaje/domain/entities"
+	"github.com/vicpoo/websocketVoltaje/repository"
 )
 
 type MessagingService struct {
@@ -49,7 +52,7 @@ func NewMessagingService(hub *Hub) *MessagingService {
 
 func (ms *MessagingService) ConsumeVoltajeMessages() error {
 	q, err := ms.ch.QueueDeclare(
-		"sensor_voltaje",
+		"sensor_voltaje", // cola para voltaje
 		true, false, false, false, nil,
 	)
 	if err != nil {
@@ -58,7 +61,7 @@ func (ms *MessagingService) ConsumeVoltajeMessages() error {
 
 	err = ms.ch.QueueBind(
 		q.Name,
-		"sensor_volt",
+		"sensor_volt", // routing key para voltaje
 		"amq.topic",
 		false,
 		nil,
@@ -74,20 +77,24 @@ func (ms *MessagingService) ConsumeVoltajeMessages() error {
 		return err
 	}
 
+	// Inicializa el repositorio y use case para voltaje
+	repo := repository.NewVoltajeRepositoryMySQL()
+	useCase := application.NewVoltajeUseCase(repo)
+
 	go func() {
 		for msg := range msgs {
 			log.Printf("Mensaje sensor_volt recibido: %s", string(msg.Body))
 
 			var payload struct {
-				Sensor          string  `json:"sensor"`
-				Voltaje         float64 `json:"voltaje"`
-				Corriente       float64 `json:"corriente"`
-				Potencia        float64 `json:"potencia"`
-				UnidadVoltaje   string  `json:"unidad_voltaje"`
-				UnidadCorriente string  `json:"unidad_corriente"`
-				UnidadPotencia  string  `json:"unidad_potencia"`
-				Timestamp       int64   `json:"timestamp"`
-				Ubicacion       string  `json:"ubicacion"`
+				Sensor         string  `json:"sensor"`
+				Voltaje        float64 `json:"voltaje"`
+				Corriente      float64 `json:"corriente"`
+				Potencia       float64 `json:"potencia"`
+				UnidadVoltaje  string  `json:"unidad_voltaje"`
+				UnidadCorriente string `json:"unidad_corriente"`
+				UnidadPotencia string  `json:"unidad_potencia"`
+				Timestamp      int64   `json:"timestamp"`
+				Ubicacion      string  `json:"ubicacion"`
 			}
 
 			if err := json.Unmarshal(msg.Body, &payload); err != nil {
@@ -96,15 +103,25 @@ func (ms *MessagingService) ConsumeVoltajeMessages() error {
 				continue
 			}
 
-			// Aquí podrías imprimir o procesar los datos si deseas
-			log.Printf("Voltaje: %.2f %s | Corriente: %.2f %s | Potencia: %.2f %s | Ubicación: %s | Timestamp: %d",
-				payload.Voltaje, payload.UnidadVoltaje,
-				payload.Corriente, payload.UnidadCorriente,
-				payload.Potencia, payload.UnidadPotencia,
-				payload.Ubicacion, payload.Timestamp,
+			data := entities.NewVoltajeData(
+				payload.Sensor,
+				payload.Voltaje,
+				payload.Corriente,
+				payload.Potencia,
+				payload.UnidadVoltaje,
+				payload.UnidadCorriente,
+				payload.UnidadPotencia,
+				payload.Timestamp,
+				payload.Ubicacion,
 			)
 
-			// Enviar mensaje a los clientes WebSocket
+			if err := useCase.SaveVoltajeData(*data); err != nil {
+				log.Printf("Error al guardar en BD: %v", err)
+			} else {
+				log.Printf("Datos de voltaje guardados correctamente")
+			}
+
+			// Enviar a WebSocket
 			ms.hub.broadcast <- msg.Body
 			msg.Ack(false)
 		}

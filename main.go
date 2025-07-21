@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/vicpoo/websocketVoltaje/core"
 	"github.com/vicpoo/websocketVoltaje/Voltaje/infrastructure"
 )
 
@@ -19,9 +20,12 @@ var upgrader = websocket.Upgrader{
 }
 
 func main() {
+	// ✅ Inicializa la base de datos
+	core.InitDB()
+
 	r := gin.Default()
 
-	// Middleware CORS
+	// CORS
 	r.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -37,36 +41,36 @@ func main() {
 		c.Next()
 	})
 
-	// Inicializa el hub WebSocket
+	// WebSocket hub
 	hub := infrastructure.NewHub()
 	go hub.Run()
 
-	// Servicio de mensajería para voltaje (RabbitMQ)
+	// Servicio de mensajería (RabbitMQ)
 	messagingService := infrastructure.NewMessagingService(hub)
 	defer messagingService.Close()
 
 	// Rutas WebSocket para voltaje
 	infrastructure.SetupVoltajeRoutes(r, hub)
 
-	// Inicia el consumidor de mensajes de voltaje
+	// Inicia consumidor RabbitMQ para sensor de voltaje
 	if err := messagingService.ConsumeVoltajeMessages(); err != nil {
 		log.Fatalf("Failed to start Voltaje consumer: %v", err)
 	}
 
-	// Captura de señales para apagado controlado
+	// Apagado controlado
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Ejecutar el servidor
+	// Inicia servidor
 	go func() {
 		if err := r.Run(":8004"); err != nil {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
 
-	log.Println("🔌 Server started on port 8004")
-	log.Println("⚡ Voltaje RabbitMQ consumer started")
+	log.Println("Server started on port 8004")
+	log.Println("Voltaje RabbitMQ consumer started")
 
 	<-sigChan
-	log.Println("Shutting down voltaje server...")
+	log.Println("Shutting down server...")
 }
