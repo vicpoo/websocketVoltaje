@@ -28,7 +28,7 @@ func (r *voltajeRepositoryMySQL) Save(data entities.VoltajeData) error {
 
 	_, err = r.db.Exec(`
 		INSERT INTO sensor_readings (
-			sensor_id, voltage, corriente, potencia, recorded_at
+			sensor_id, voltage, current, potencia, recorded_at
 		) VALUES (?, ?, ?, ?, FROM_UNIXTIME(?))`,
 		sensorID, data.Voltage, data.Current, data.Power, data.Timestamp)
 
